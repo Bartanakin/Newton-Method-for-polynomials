@@ -12,24 +12,32 @@ int main() {
         std::cin >> coefficients[i];
     }
 
+    Polynomial p_original{coefficients};
     Polynomial p{coefficients};
+
+    std::cout << std::string(p) << std::endl;
 
     std::vector<ComplexNumber> roots(d);
     while (p.deg() > 1) {
+        // Find an estimation of the root on a reduced polynomial
         NewtonMethod N(p);
-        N.solve();
-        if (std::abs(N.z.im) > 1e-6) {
-            roots[p.deg() - 1] = N.z;
-            roots[p.deg() - 2] = N.z.conjugate();
+        auto z = N.solve();
+        // Use it as a starting point for the original polynomial
+        NewtonMethod N_original{p_original, z};
+        z = N_original.solve();
+        if (std::abs(z.im) > 1e-6) {
+            roots[p.deg() - 1] = z;
+            roots[p.deg() - 2] = z.conjugate();
         } else {
-            roots[p.deg() - 1] = N.z;
+            roots[p.deg() - 1] = z;
         }
 
         p = N.getNextPolynomial();
     }
 
     if (p.deg() == 1) {
-        roots[p.deg() - 1] = - p[0] / p[1];
+        NewtonMethod N_original{p_original, {- p[0] / p[1]}};
+        roots[p.deg() - 1] = N_original.solve();
     }
 
     for (int i = 0; i < d; i++) {
