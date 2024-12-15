@@ -8,20 +8,24 @@ public:
     static constexpr double EPSILON = 1e-8;
 
     NewtonMethod(
-        const Polynomial& p
+        const Polynomial& p,
+        unsigned int seed
     ) noexcept:
         p(p),
-        dz({}) {
+        dz({}),
+        seed(seed) {
         this->init();
     }
 
     NewtonMethod(
         const Polynomial& p,
+        unsigned int seed,
         ComplexNumber z0
     ) noexcept:
         p(p),
         dz({}),
-        z(z0) {}
+        z(z0),
+        seed(seed) {}
 
     void init() {
         this->max = 0.;
@@ -32,82 +36,122 @@ public:
         this->max /= std::abs(this->p[this->p.deg()]);
 
         // An estimation of maximal value of a root
-        if (this->max < 1.) {
-            this->max = 1.;
+        if (this->max < 200.) {
+            this->max = 200.;
         }
 
-        // auto seed = std::random_device{}();
-        auto seed = 236134970;
-        auto engine = std::default_random_engine(seed);
+        auto engine = std::default_random_engine(this->seed);
         auto dis = std::uniform_real_distribution<double>(-this->max, this->max);
         this->z = ComplexNumber(dis(engine), dis(engine));
+        // this->z = ComplexNumber(dis(engine), 0.);
+
+        this->seed--;
     }
 
     void iterate() {
         // calculate value at point z along with the first and second derivatives
-        this->dz = this->p(this->z);
-        this->det = this->dz.dx.re * this->dz.dy.im - this->dz.dy.re * this->dz.dx.im;
+        this->dz = std::move(this->p(this->z, this->p.deg()));
+        this->det = this->dz[1].absSquare();
         if (this->det == 0.) {
             throw std::invalid_argument("Polynomial is not differentiable at " + std::string(this->z));
         }
 
-        // Coefficients of D^(-1)(x_x)
+        // Coefficients of D^(-1)(x_0)
         double a11, a12, a21, a22;
-        a11 = this->dz.dy.im;
-        a12 = -this->dz.dy.re;
-        a21 = -this->dz.dx.im;
-        a22 = this->dz.dx.re;
+        a11 = this->dz[1].re;
+        a12 = this->dz[1].im;
+        a21 = -this->dz[1].im;
+        a22 = this->dz[1].re;
 
         // x_(n+1) = x_n - D^(-1)(x_x) * f(x_n)
-        this->z = this->z - ComplexNumber(a11 * this->dz.f.re + a12 * this->dz.f.im, a21 * this->dz.f.re + a22 * this->dz.f.im) * (1. / this->det);
+        this->z =
+            this->z - ComplexNumber(a11 * this->dz[0].re + a12 * this->dz[0].im, a21 * this->dz[0].re + a22 * this->dz[0].im) * (1. / this->det);
     }
 
-    ComplexNumber solve() {
-        double a11, a12, a21, a22;
-        double Mx, My;
-        double M;
-        double prev_norm = std::numeric_limits<double>::max();
-        double norm = 0.;
-        ComplexNumber prev;
+    std::vector<ComplexNumber> solve(
+        bool multiple
+    ) {
+        double prev_L_local = std::numeric_limits<double>::max();
+        double L_local = 0.;
+        auto L = std::numeric_limits<double>::max();
+        double prev_error = std::numeric_limits<double>::max();
+        bool calPrev = false;
+        ComplexNumber prev = this->z;
+        auto R = std::numeric_limits<double>::max();
         do {
             // randomize one more time
-            if (this->z.abs() > 3. * this->max || norm > 1. && std::abs(norm - prev_norm) <= NewtonMethod::EPSILON) {
+            if ((this->z - prev).abs() > 10. * prev_error + NewtonMethod::EPSILON || this->z.abs() > 3. * this->max
+                || L_local > 1. && std::abs(L_local - prev_L_local) <= NewtonMethod::EPSILON) {
                 this->init();
             }
 
-            prev = this->z;
+            if (calPrev) {
+                prev_error = (this->z - prev).abs();
+                prev = this->z;
+                prev_L_local = L_local;
+            }
+
+            calPrev = true;
             this->iterate();
 
-            // The denominator when we calculate the derivative of N(x0) (we need to square it later)
-            M = this->det;
-            // The partial derivative of M by x
-            Mx = this->dz.d2x2.re * this->dz.dy.im + this->dz.dx.re + this->dz.d2xy.im - this->dz.d2xy.re * this->dz.dx.im
-                 - this->dz.dy.re * this->dz.d2x2.im;
-            // The partial derivative of M by y
-            My = this->dz.d2xy.re * this->dz.dy.im + this->dz.dx.re + this->dz.d2y2.im - this->dz.d2y2.re * this->dz.dx.im
-                 - this->dz.dy.re * this->dz.d2xy.im;
+            // DN(x_0) - if this value is greater than 1. then definitely we are not close enough to the fixed point yet
+            L_local = this->dz[0].abs() * this->dz[2].abs() / this->dz[1].absSquare();
+            if (L_local < 1.) {
+                // set L that we are looking for:  DN(x_0) <= L = (1 + DN(x_0)) / 2 <= 1
+                R = 2. * (prev - this->z).abs() / (1. - L_local);
 
-            // The coefficients of DN(x0). We do not need a12 and a21 because they will cancel out.
-            a11 = (this->dz.d2xy.im * M - this->dz.dy.im * Mx) * this->dz.f.re + (this->dz.d2y2.im * M - this->dz.dy.im * My) * this->dz.f.im;
-            // a12 = (-this->dz.d2xy.re * M + this->dz.dy.re * Mx) * this->dz.f.re - (this->dz.d2y2.re * M + this->dz.dy.re * My) * this->dz.f.im;
-            // a21 = (-this->dz.d2x2.im * M + this->dz.dx.im * Mx) * this->dz.f.re - (this->dz.d2xy.im * M + this->dz.dx.im * My) * this->dz.f.im;
-            a22 = (this->dz.d2x2.re * M - this->dz.dx.re * Mx) * this->dz.f.re + (this->dz.d2xy.re * M - this->dz.dx.re * My) * this->dz.f.im;
+                if (R == 0.) {
+                    break; // We are so close to the solution that there is no use of looking for a better approximation
+                }
 
-            prev_norm = norm;
-            // Calculate |DN(x_n)|
-            norm = (std::pow(a11, 2) + std::pow(a22, 2)) * std::pow(1. / M, 2);
-        } while (std::abs(norm) >= 1. || (this->z - prev).abs() > 1e-8);
+                auto F = 0.;
+                auto F_prime = this->dz[1].abs();
+                auto F_bis = 0.;
+                auto Ri = 1.;
+                for (int i = 0; i <= this->p.deg(); i++) {
+                    F += this->dz[i].abs() * Ri * (1. / DiffAtPoint::factorials[i]);
+                    if (i + 1 <= this->p.deg() && i > 0) {
+                        F_prime -= this->dz[i + 1].abs() * Ri * (1. / DiffAtPoint::factorials[i]);
+                    }
 
-        return this->z;
+                    if (i + 2 <= this->p.deg()) {
+                        F_bis += this->dz[i + 2].abs() * Ri * (1. / DiffAtPoint::factorials[i]);
+                    }
+
+                    Ri *= R;
+                }
+
+                if (F_prime < 0.) {
+                    continue;
+                }
+
+                // upper approximation of L in the B(x_0, R)n set
+                L = F * F_bis / (F_prime * F_prime);
+            }
+
+            // check if L <= (1 + DN(x_0)) / 2 and require low error
+        } while (L > 0.5 * (1. + L_local) || (this->z - prev).abs() > 1e-8);
+
+        // Check if the root is a real one. If not then return two roots where one is the conjugate of the second (*)
+        if (multiple && std::abs(this->z.im) > R) {
+            return {this->z, this->z.conjugate()};
+        }
+
+        return {this->z};
     }
 
-    Polynomial getNextPolynomial() const {
+    // This method divides a polynomial
+    Polynomial getNextPolynomial(
+        std::vector<ComplexNumber> zs
+    ) const {
         auto n = this->p.deg();
-        if (std::abs(this->z.im) < 1e-6) {
+
+        // There is one root only hence I am sure it is a real one
+        if (zs.size() == 1) {
             std::vector<double> W(this->p.deg());
             W[n - 1] = this->p[n];
             for (size_t i = n - 1; i >= 1; i--) {
-                W[i - 1] = this->p[i] + this->z.re * W[i];
+                W[i - 1] = this->p[i] + zs[0].re * W[i];
             }
 
             return Polynomial{std::move(W)};
@@ -117,8 +161,9 @@ public:
             return Polynomial{{this->p[2]}};
         }
 
-        double alpha = -2. * this->z.re;
-        double beta = std::pow(this->z.re, 2) + std::pow(this->z.im, 2);
+        // There are two roots, so I know that one is the conjugate of the second (look at (*))
+        double alpha = -2. * zs[0].re;
+        double beta = std::pow(zs[0].re, 2) + std::pow(zs[0].im, 2);
         std::vector<double> W(this->p.deg() - 1);
         W[n - 2] = this->p[n];
         W[n - 3] = this->p[n - 1] - alpha * W[n - 2];
@@ -134,4 +179,5 @@ public:
     DiffAtPoint dz;
     double det = 0.;
     double max;
+    unsigned int seed;
 };

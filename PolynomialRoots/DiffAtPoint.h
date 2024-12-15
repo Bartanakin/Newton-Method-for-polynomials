@@ -6,54 +6,37 @@
 #include "ComplexNumber.h"
 
 struct DiffAtPoint {
-    ComplexNumber f;
-    ComplexNumber dx;
-    ComplexNumber dy;
-    ComplexNumber d2x2;
-    ComplexNumber d2xy;
-    ComplexNumber d2y2;
+    static std::vector<unsigned int> factorials;
+    std::vector<ComplexNumber> z;
 
     DiffAtPoint(
-        ComplexNumber z,
-        ComplexNumber dx,
-        ComplexNumber dy,
-        ComplexNumber d2x2,
-        ComplexNumber d2xy,
-        ComplexNumber d2y2
+        std::vector<ComplexNumber> z
     ):
-        f(z),
-        dx(dx),
-        dy(dy),
-        d2x2(d2x2),
-        d2xy(d2xy),
-        d2y2(d2y2) {}
+        z(std::move(z)) {
 
-    DiffAtPoint(
-        ComplexNumber z
-    ):
-        f(z),
-        dx({}),
-        dy({}),
-        d2x2({}),
-        d2xy({}),
-        d2y2({}) {}
+        auto oldSize = factorials.size();
+        if (factorials.size() < this->z.size()) {
+            factorials.resize(this->z.size());
+        }
 
-    DiffAtPoint(
-        double real
-    ):
-        DiffAtPoint(ComplexNumber(real)) {}
+        for (unsigned int i = oldSize; i < factorials.size(); i++) {
+            factorials[i] = factorials[i - 1] * i;
+        }
+    }
 
     DiffAtPoint operator+(
         const DiffAtPoint& second
     ) const {
-        return {
-            second.f + this->f,
-            second.dx + this->dx,
-            second.dy + this->dy,
-            second.d2x2 + this->d2x2,
-            second.d2xy + this->d2xy,
-            second.d2y2 + this->d2y2
-        };
+        if (second.z.size() != z.size()) {
+            throw std::invalid_argument("size mismatch");
+        }
+
+        std::vector<ComplexNumber> temp(z.size());
+        for (int i = 0; i < z.size(); i++) {
+            temp[i] = z[i] + second.z[i];
+        }
+
+        return {std::move(temp)};
     }
 
     DiffAtPoint& operator+=(
@@ -64,17 +47,32 @@ struct DiffAtPoint {
         return *this;
     }
 
+    DiffAtPoint& operator+=(
+        const ComplexNumber& z
+    ) {
+        this->z[0] += z;
+
+        return *this;
+    }
+
     DiffAtPoint operator*(
         const DiffAtPoint& second
     ) const {
-        return {
-            second.f * this->f,
-            this->f * second.dx + this->dx * second.f,
-            this->f * second.dy + this->dy * second.f,
-            this->d2x2 * second.f + this->dx * second.dx + this->dx * second.dx + this->f * second.d2x2,
-            this->d2xy * second.f + this->dx * second.dy + this->dy * second.dx + this->f * second.d2xy,
-            this->d2y2 * second.f + this->dy * second.dy + this->dy * second.dy + this->f * second.d2y2,
-        };
+        if (second.z.size() != z.size()) {
+            throw std::invalid_argument("size mismatch");
+        }
+
+        std::vector<ComplexNumber> temp(z.size());
+        for (int k = 0; k < z.size(); k++) {
+            ComplexNumber sum{};
+            for (int i = 0; i <= k; ++i) {
+                sum += z[i] * second.z[k - i];
+            }
+
+            temp[k] = sum;
+        }
+
+        return {std::move(temp)};
     }
 
     DiffAtPoint& operator*=(
@@ -87,20 +85,35 @@ struct DiffAtPoint {
 
     DiffAtPoint operator*(
         const ComplexNumber& z
-    ) const {
-        return {
-            z * this->f,
-            z * this->dx,
-            z * this->dy,
-            z * this->d2x2,
-            z * this->d2xy,
-            z * this->d2y2
-        };
+        ) const {
+
+        std::vector<ComplexNumber> temp(this->z.size());
+        for (int i = 0; i < this->z.size(); i++) {
+            temp[i] = z * this->z[i];
+        }
+
+        return {std::move(temp)};
+    }
+
+    ComplexNumber operator[](size_t i) const {
+        if (i >= z.size()) {
+            throw std::invalid_argument("index out of range");
+        }
+
+        return this->z[i] * factorials[i];
     }
 
     operator std::string() const {
-        return "f = " + std::string(this->f) + "\nd = \n[" + std::string(this->dx) + "\n "
-        + std::string(this->dy) + "]\nd2 = \n[" + std::string(this->d2x2) + " " + std::string(this->d2xy) + "\n "
-        + std::string(this->d2xy) + " " + std::string(this->d2y2) + "]\n";
+        std::string s = "[";
+        for (int i = 0; i < this->z.size(); i++) {
+            s += this->operator[](i);
+            s += " ";
+        }
+
+        s += "]";
+
+        return s;
     }
 };
+
+std::vector<unsigned int> DiffAtPoint::factorials = {1, 1};

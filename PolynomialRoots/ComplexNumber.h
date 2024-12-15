@@ -66,7 +66,9 @@ struct ComplexNumber {
         return *this + -second;
     }
 
-    double abs() const { return std::sqrt(std::pow(this->re, 2) + std::pow(this->im, 2)); }
+    double abs() const { return std::sqrt(this->absSquare()); }
+
+    double absSquare() const { return std::pow(this->re, 2) + std::pow(this->im, 2); }
 
     ComplexNumber conjugate() const { return {this->re, -this->im}; }
 };

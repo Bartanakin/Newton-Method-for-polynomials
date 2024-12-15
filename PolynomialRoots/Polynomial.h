@@ -16,10 +16,17 @@ public:
     Polynomial& operator=(Polynomial&& rhs) = default;
 
     DiffAtPoint operator()(
-        ComplexNumber z
+        ComplexNumber z,
+        unsigned int order = 0
     ) const {
-        DiffAtPoint x{0., 0., 0., 0., 0., 0.};
-        DiffAtPoint dz{z, 1., 1._i, 0., 0., 0.};
+        DiffAtPoint x{std::move(std::vector<ComplexNumber>(order + 1, 0.))};
+        auto init = std::vector<ComplexNumber>(order + 1, 0.);
+        init[0] = z;
+        if (init.size() > 1) {
+            init[1] = 1.;
+        }
+
+        DiffAtPoint dz{std::move(init)};
         for (int i = this->a.size() - 1; i > 0; i--) {
             x += this->a[i];
             x *= dz;
